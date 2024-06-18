@@ -1,0 +1,72 @@
+volumes:
+  redis-prod-data:
+    name: "filetao-redis-data"
+
+x-filetao: &filetao
+    image: filetao
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ${BT_WALLETS_PATH}:/root/.bittensor/wallets
+      - ./scripts:/install/scripts
+    env_file:
+      - .env
+    network_mode: host
+
+services:
+  filetao-miner:
+    <<: *filetao
+    volumes:
+      - ${BT_WALLETS_PATH}:/root/.bittensor/wallets
+      - ${FILETAO_MINER_DATA_DIR}:/root/.data/
+    environment:
+      - FILETAO_NODE=miner
+    env_file:
+      - .env
+      - path: filetao-miner.env
+        required: false
+
+  filetao-validator:
+    <<: *filetao
+    depends_on:
+      filetao-api:
+        condition: service_started
+    environment:
+      - FILETAO_NODE=validator
+    env_file:
+      - .env
+      - path: filetao-validator.env
+        required: false
+
+  filetao-api:
+    <<: *filetao
+    environment:
+      - FILETAO_NODE=api
+    env_file:
+      - .env
+      - path: filetao-api.env
+        required: false
+
+  redis:
+    image: redis:7.2.4-alpine
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "incr", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+    command:
+      - redis-server
+      - /etc/redis/redis.conf
+      - --requirepass
+      - ${REDIS_PASSWORD}
+    ports:
+      - "${REDIS_HOST:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-prod-data:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf
